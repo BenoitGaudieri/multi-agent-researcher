@@ -10,6 +10,8 @@ synthesize   — merge all context and produce the final answer
 """
 
 import os
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from langchain_ollama import ChatOllama, OllamaEmbeddings
@@ -35,6 +37,45 @@ def _format_docs(docs: list) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+# ── web results persistence ───────────────────────────────────────────────────
+
+def _save_web_results(question: str, results: list[dict]) -> Path:
+    """Save web search results to web_results/ as a Markdown file."""
+    out_dir = config.WEB_RESULTS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.now(timezone.utc)
+    slug = re.sub(r"[^\w]+", "-", question.lower())[:60].strip("-")
+    filename = f"{ts.strftime('%Y%m%d-%H%M%S')}-{slug}.md"
+    filepath = out_dir / filename
+
+    lines = [
+        f"# Web search results",
+        f"",
+        f"**Query:** {question}  ",
+        f"**Date:** {ts.strftime('%Y-%m-%d %H:%M UTC')}  ",
+        f"**Results:** {len(results)}",
+        f"",
+    ]
+    for i, r in enumerate(results, 1):
+        url = r.get("url") or r.get("href", "")
+        title = r.get("title") or url
+        content = (r.get("content") or r.get("body", "")).strip()
+        lines += [
+            f"---",
+            f"",
+            f"## {i}. {title}",
+            f"",
+            f"**URL:** {url}  " if url else "",
+            f"",
+            content,
+            f"",
+        ]
+
+    filepath.write_text("\n".join(lines), encoding="utf-8")
+    return filepath
+
+
 # ── node: orchestrate ─────────────────────────────────────────────────────────
 
 _ROUTE_PROMPT = """\
@@ -56,7 +97,7 @@ def orchestrate(state: ResearchState) -> dict:
     llm = _llm()
     prompt = _ROUTE_PROMPT.format(question=state["question"])
     response = llm.invoke(prompt)
-    route = response.content.strip().upper()
+    route = str(response.content).strip().upper()
 
     # Be lenient: any word containing RAG/WEB is accepted
     needs_rag = "RAG" in route or "BOTH" in route
@@ -93,26 +134,28 @@ def rag_agent(state: ResearchState) -> dict:
 # ── node: web_agent ───────────────────────────────────────────────────────────
 
 def web_agent(state: ResearchState) -> dict:
-    """Search the web — Tavily if API key is set, else DuckDuckGo."""
+    """Search the web — Tavily if API key is set, else DuckDuckGo (ddgs)."""
     max_results = int(os.getenv("WEB_MAX_RESULTS", "5"))
+    question = state["question"]
 
     try:
         if os.getenv("TAVILY_API_KEY"):
             from langchain_community.tools.tavily_search import TavilySearchResults
             tool = TavilySearchResults(max_results=max_results)
-            results = tool.invoke(state["question"])
-            if isinstance(results, list):
-                formatted = "\n\n".join(
-                    f"[{r.get('url', '?')}]\n{r.get('content', '')}" for r in results
-                )
-            else:
-                formatted = str(results)
+            raw = tool.invoke(question)
+            results: list[dict] = raw if isinstance(raw, list) else []
         else:
-            from langchain_community.tools import DuckDuckGoSearchRun
-            tool = DuckDuckGoSearchRun()
-            formatted = tool.invoke(state["question"])
+            from ddgs import DDGS
+            with DDGS() as ddgs:
+                results = list(ddgs.text(question, max_results=max_results))
 
-        return {"web_results": [formatted]}
+        saved = _save_web_results(question, results)
+
+        formatted = "\n\n".join(
+            f"[{r.get('url') or r.get('href', '?')}]\n{r.get('content') or r.get('body', '')}"
+            for r in results
+        )
+        return {"web_results": [f"<!-- saved: {saved} -->\n{formatted}"]}
     except Exception as e:
         return {"web_results": [f"[WEB] Error: {e}"]}
 
@@ -145,4 +188,4 @@ def synthesize(state: ResearchState) -> dict:
     prompt = _SYNTH_PROMPT.format(context=context, question=state["question"])
     llm = _llm()
     response = llm.invoke(prompt)
-    return {"final_answer": response.content}
+    return {"final_answer": str(response.content)}

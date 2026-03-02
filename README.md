@@ -60,7 +60,7 @@ L'orchestratore chiede all'LLM di scegliere esattamente una tra quattro opzioni:
 | LLM & Embeddings | [Ollama](https://ollama.com/) (locale, no API key) |
 | Vector store | [FAISS](https://github.com/facebookresearch/faiss) |
 | Web search (primario) | [Tavily](https://tavily.com/) (gratuito, API key richiesta) |
-| Web search (fallback) | [DuckDuckGo](https://pypi.org/project/duckduckgo-search/) (no API key) |
+| Web search (fallback) | [ddgs](https://pypi.org/project/ddgs/) — DuckDuckGo (no API key) |
 | CLI | [Typer](https://typer.tiangolo.com/) + [Rich](https://github.com/Textualize/rich) |
 
 ---
@@ -84,7 +84,8 @@ multi-agent-researcher/
 │   ├── config.py         # Configurazione via env vars
 │   └── indexer.py        # Indicizzatore documenti → FAISS
 │
-└── docs/                 # Cartella dove mettere i documenti da indicizzare
+├── docs/                 # Documenti da indicizzare
+└── web_results/          # Risultati web salvati automaticamente (Markdown)
 ```
 
 ---
@@ -159,6 +160,9 @@ TAVILY_API_KEY=tvly-xxxxxxxxxxxxx
 
 # Numero massimo di risultati web
 WEB_MAX_RESULTS=5
+
+# Cartella dove salvare i risultati web (Markdown)
+WEB_RESULTS_DIR=./web_results
 ```
 
 ---
@@ -216,6 +220,40 @@ python main.py list
 Indexed collections:
   default   — 142 chunks  (manuale.pdf, policy.md) · 2025-03-01
   aziendale — 87 chunks   (organigramma.pdf)        · 2025-02-28
+```
+
+### Risultati web salvati
+
+Ogni volta che il web agent viene invocato, i risultati vengono salvati automaticamente in `web_results/` come file Markdown:
+
+```
+web_results/
+├── 20260302-143021-ultime-notizie-su-langchain.md
+├── 20260302-150812-chi-ha-vinto-le-elezioni.md
+└── ...
+```
+
+Formato del file:
+
+```markdown
+# Web search results
+
+**Query:** ultime notizie su LangGraph
+**Date:** 2026-03-02 14:30 UTC
+**Results:** 5
+
+---
+
+## 1. LangGraph 0.3 released — major improvements
+**URL:** https://example.com/article
+
+Content of the result...
+```
+
+I file `.md` possono essere re-indicizzati nel RAG per costruire una knowledge base dai risultati web:
+
+```bash
+python main.py index ./web_results/ --collection web-archive
 ```
 
 ---
@@ -306,7 +344,7 @@ ollama list    # verifica che llama3.2 e nomic-embed-text siano installati
 Il RAG agent non trova un FAISS index. Esegui prima `python main.py index <path>`.
 
 **DuckDuckGo ritorna errore**
-DuckDuckGo ha rate limiting. Imposta `TAVILY_API_KEY` nel `.env` per una ricerca web più affidabile.
+`ddgs` ha rate limiting aggressivo. Imposta `TAVILY_API_KEY` nel `.env` per una ricerca web più affidabile. In alternativa, riduci `WEB_MAX_RESULTS` a 3.
 
 **L'orchestratore sceglie sempre RAG (o sempre WEB)**
 Prova un modello LLM più capace: `RAG_LLM_MODEL=llama3.1:8b` o `mistral`. Il prompt di classificazione funziona meglio con modelli instruction-tuned.
