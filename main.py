@@ -30,6 +30,11 @@ app = typer.Typer(
 )
 console = Console()
 
+_OUTPUT_HELP = (
+    "Output mode: 'both' (default) saves MD files and prints to CLI, "
+    "'cli' prints only, 'md' saves only."
+)
+
 
 # ── index ─────────────────────────────────────────────────────────────────────
 
@@ -88,10 +93,15 @@ def research(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Show routing decisions and agent outputs"
     ),
+    output: str = typer.Option(
+        "both", "--output", "-o", help=_OUTPUT_HELP
+    ),
 ):
     """Ask a question — the orchestrator decides which agents to use."""
     from rag import config
     from graph.builder import graph
+
+    output = _validate_output(output)
 
     if collection:
         config.COLLECTION = collection
@@ -102,19 +112,30 @@ def research(
         "needs_web": False,
         "rag_results": [],
         "web_results": [],
+        "output_mode": output,
         "final_answer": None,
     }
 
-    console.print(f"\n[bold blue]Q:[/bold blue] {question}\n")
+    if output != "md":
+        console.print(f"\n[bold blue]Q:[/bold blue] {question}\n")
 
     with console.status("[dim]Thinking...[/dim]"):
         result = graph.invoke(initial_state)
 
-    if verbose:
-        _print_verbose(result)
+    if output != "md":
+        if verbose:
+            _print_verbose(result)
+        answer = result.get("final_answer", "No answer generated.")
+        console.print(Panel(Markdown(answer), title="[bold green]Answer[/bold green]", border_style="green"))
+    else:
+        console.print(f"[dim]Saved to answers/ and web_results/[/dim]")
 
-    answer = result.get("final_answer", "No answer generated.")
-    console.print(Panel(Markdown(answer), title="[bold green]Answer[/bold green]", border_style="green"))
+
+def _validate_output(value: str) -> str:
+    if value not in ("both", "cli", "md"):
+        console.print(f"[red]Invalid --output value '{value}'. Use: both, cli, md.[/red]")
+        raise typer.Exit(1)
+    return value
 
 
 def _print_verbose(result: dict) -> None:
@@ -152,10 +173,15 @@ def ask(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Show routing decisions and agent outputs"
     ),
+    output: str = typer.Option(
+        "both", "--output", "-o", help=_OUTPUT_HELP
+    ),
 ):
     """Interactive research REPL — ask multiple questions in sequence."""
     from rag import config
     from graph.builder import graph
+
+    output = _validate_output(output)
 
     if collection:
         config.COLLECTION = collection
@@ -165,7 +191,8 @@ def ask(
             "[bold]Multi-Agent Researcher — Interactive Mode[/bold]\n\n"
             f"Collection : [cyan]{config.COLLECTION}[/cyan]\n"
             f"LLM        : [cyan]{config.LLM_MODEL}[/cyan]\n"
-            f"Embeddings : [cyan]{config.EMBED_MODEL}[/cyan]\n\n"
+            f"Embeddings : [cyan]{config.EMBED_MODEL}[/cyan]\n"
+            f"Output     : [cyan]{output}[/cyan]\n\n"
             "[dim]Type a question and press Enter. 'exit' or Ctrl-C to quit.[/dim]",
             border_style="blue",
         )
@@ -188,17 +215,20 @@ def ask(
             "needs_web": False,
             "rag_results": [],
             "web_results": [],
+            "output_mode": output,
             "final_answer": None,
         }
 
         with console.status("[dim]Thinking...[/dim]"):
             result = graph.invoke(initial_state)
 
-        if verbose:
-            _print_verbose(result)
-
-        answer = result.get("final_answer", "No answer generated.")
-        console.print(Panel(Markdown(answer), title="[bold green]Answer[/bold green]", border_style="green"))
+        if output != "md":
+            if verbose:
+                _print_verbose(result)
+            answer = result.get("final_answer", "No answer generated.")
+            console.print(Panel(Markdown(answer), title="[bold green]Answer[/bold green]", border_style="green"))
+        else:
+            console.print(f"[dim]Saved to answers/ and web_results/[/dim]")
 
     console.print("\n[dim]Bye.[/dim]")
 

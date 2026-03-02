@@ -18,3 +18,6 @@ TOP_K: int = int(os.getenv("RAG_TOP_K", "5"))
 
 # Web results persistence
 WEB_RESULTS_DIR: Path = Path(os.getenv("WEB_RESULTS_DIR", "./web_results"))
+
+# Final answers persistence
+ANSWERS_DIR: Path = Path(os.getenv("ANSWERS_DIR", "./answers"))

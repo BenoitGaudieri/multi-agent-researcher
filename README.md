@@ -85,7 +85,8 @@ multi-agent-researcher/
 │   └── indexer.py        # Indicizzatore documenti → FAISS
 │
 ├── docs/                 # Documenti da indicizzare
-└── web_results/          # Risultati web salvati automaticamente (Markdown)
+├── web_results/          # Risultati web salvati automaticamente (Markdown)
+└── answers/              # Risposte finali salvate automaticamente (Markdown)
 ```
 
 ---
@@ -163,6 +164,9 @@ WEB_MAX_RESULTS=5
 
 # Cartella dove salvare i risultati web (Markdown)
 WEB_RESULTS_DIR=./web_results
+
+# Cartella dove salvare le risposte finali (Markdown)
+ANSWERS_DIR=./answers
 ```
 
 ---
@@ -185,7 +189,7 @@ python main.py index ./docs/ --collection aziendale
 ### Fare una domanda
 
 ```bash
-# Domanda singola
+# Domanda singola (default: salva MD + mostra su CLI)
 python main.py research "Quali sono le clausole di rescissione del contratto?"
 
 # Con output verboso (mostra route + contesti raw)
@@ -193,6 +197,12 @@ python main.py research "Ultime notizie su LangGraph?" --verbose
 
 # Usando una collection specifica
 python main.py research "Chi è il CEO?" --collection aziendale
+
+# Solo output su CLI (non salva file)
+python main.py research "domanda" --output cli
+
+# Solo salvataggio MD (niente output su terminale)
+python main.py research "domanda" --output md
 ```
 
 ### Modalità interattiva (REPL)
@@ -202,6 +212,9 @@ python main.py ask
 
 # Con verbose e collection custom
 python main.py ask --verbose --collection aziendale
+
+# Solo CLI, senza salvare file
+python main.py ask --output cli
 ```
 
 ```
@@ -222,18 +235,29 @@ Indexed collections:
   aziendale — 87 chunks   (organigramma.pdf)        · 2025-02-28
 ```
 
-### Risultati web salvati
+### Flag `--output` / `-o`
 
-Ogni volta che il web agent viene invocato, i risultati vengono salvati automaticamente in `web_results/` come file Markdown:
+Controlla dove viene scritto il risultato:
+
+| Valore | CLI | File MD |
+|--------|:---:|:-------:|
+| `both` (default) | ✓ | ✓ |
+| `cli` | ✓ | ✗ |
+| `md` | ✗ | ✓ |
+
+Disponibile sia su `research` che su `ask`.
+
+### Output su file Markdown
+
+Quando `--output` è `both` o `md`, ogni esecuzione produce automaticamente due file.
+
+**`web_results/`** — risultati grezzi della ricerca web:
 
 ```
 web_results/
 ├── 20260302-143021-ultime-notizie-su-langchain.md
-├── 20260302-150812-chi-ha-vinto-le-elezioni.md
-└── ...
+└── 20260302-150812-chi-ha-vinto-le-elezioni.md
 ```
-
-Formato del file:
 
 ```markdown
 # Web search results
@@ -250,10 +274,30 @@ Formato del file:
 Content of the result...
 ```
 
-I file `.md` possono essere re-indicizzati nel RAG per costruire una knowledge base dai risultati web:
+**`answers/`** — risposta sintetizzata finale:
+
+```
+answers/
+├── 20260302-143021-ultime-notizie-su-langchain.md
+└── 20260302-150812-chi-ha-vinto-le-elezioni.md
+```
+
+```markdown
+# Ultime notizie su LangGraph?
+
+**Date:** 2026-03-02 14:30 UTC
+**Route:** WEB
+
+---
+
+LangGraph ha rilasciato la versione 0.3 con miglioramenti...
+```
+
+Entrambe le cartelle possono essere re-indicizzate nel RAG:
 
 ```bash
 python main.py index ./web_results/ --collection web-archive
+python main.py index ./answers/     --collection answers-archive
 ```
 
 ---
@@ -280,10 +324,13 @@ class ResearchState(TypedDict):
     needs_web: bool
     rag_results: Annotated[list[str], add]   # reducer: concatena risultati paralleli
     web_results: Annotated[list[str], add]
+    output_mode: str                         # "both" | "cli" | "md"
     final_answer: Optional[str]
 ```
 
 Il reducer `add` su `rag_results` e `web_results` è fondamentale: quando i due agenti girano in parallelo e scrivono entrambi sullo stato, i risultati vengono concatenati invece di sovrascriversi.
+
+`output_mode` viene impostato dal CLI e propagato ai nodi: `web_agent` e `synthesize` lo leggono per decidere se scrivere i file su disco.
 
 ### 2. Nodo `orchestrate`
 

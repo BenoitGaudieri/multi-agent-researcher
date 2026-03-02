@@ -23,5 +23,8 @@ class ResearchState(TypedDict):
     rag_results: Annotated[list[str], add]
     web_results: Annotated[list[str], add]
 
+    # Output mode: "both" | "cli" | "md"
+    output_mode: str
+
     # Final synthesized answer
     final_answer: Optional[str]

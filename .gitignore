@@ -3,3 +3,6 @@ venv
 docs
 web_results
 graph/__pycache__
+rag/__pycache__
+answers
+logs

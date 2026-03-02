@@ -76,6 +76,43 @@ def _save_web_results(question: str, results: list[dict]) -> Path:
     return filepath
 
 
+# ── answer persistence ────────────────────────────────────────────────────────
+
+def _save_answer(state: ResearchState, answer: str) -> Path:
+    """Save the final synthesized answer to answers/ as a Markdown file."""
+    out_dir = config.ANSWERS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.now(timezone.utc)
+    slug = re.sub(r"[^\w]+", "-", state["question"].lower())[:60].strip("-")
+    filename = f"{ts.strftime('%Y%m%d-%H%M%S')}-{slug}.md"
+    filepath = out_dir / filename
+
+    needs_rag = state.get("needs_rag", False)
+    needs_web = state.get("needs_web", False)
+    route = (
+        "RAG + WEB" if needs_rag and needs_web
+        else "RAG" if needs_rag
+        else "WEB" if needs_web
+        else "NONE"
+    )
+
+    lines = [
+        f"# {state['question']}",
+        f"",
+        f"**Date:** {ts.strftime('%Y-%m-%d %H:%M UTC')}  ",
+        f"**Route:** {route}",
+        f"",
+        f"---",
+        f"",
+        answer,
+        f"",
+    ]
+
+    filepath.write_text("\n".join(lines), encoding="utf-8")
+    return filepath
+
+
 # ── node: orchestrate ─────────────────────────────────────────────────────────
 
 _ROUTE_PROMPT = """\
@@ -149,13 +186,16 @@ def web_agent(state: ResearchState) -> dict:
             with DDGS() as ddgs:
                 results = list(ddgs.text(question, max_results=max_results))
 
-        saved = _save_web_results(question, results)
-
         formatted = "\n\n".join(
             f"[{r.get('url') or r.get('href', '?')}]\n{r.get('content') or r.get('body', '')}"
             for r in results
         )
-        return {"web_results": [f"<!-- saved: {saved} -->\n{formatted}"]}
+
+        if state.get("output_mode", "both") != "cli":
+            saved = _save_web_results(question, results)
+            return {"web_results": [f"<!-- saved: {saved} -->\n{formatted}"]}
+
+        return {"web_results": [formatted]}
     except Exception as e:
         return {"web_results": [f"[WEB] Error: {e}"]}
 
@@ -188,4 +228,7 @@ def synthesize(state: ResearchState) -> dict:
     prompt = _SYNTH_PROMPT.format(context=context, question=state["question"])
     llm = _llm()
     response = llm.invoke(prompt)
-    return {"final_answer": str(response.content)}
+    answer = str(response.content)
+    if state.get("output_mode", "both") != "cli":
+        _save_answer(state, answer)
+    return {"final_answer": answer}
