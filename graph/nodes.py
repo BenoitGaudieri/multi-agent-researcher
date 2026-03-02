@@ -157,9 +157,12 @@ def rag_agent(state: ResearchState) -> dict:
         vectorstore = FAISS.load_local(
             str(collection_dir), embeddings, allow_dangerous_deserialization=True
         )
+        search_kwargs: dict = {"k": config.TOP_K}
+        if config.SEARCH_TYPE == "mmr":
+            search_kwargs["fetch_k"] = config.TOP_K * 3
         retriever = vectorstore.as_retriever(
-            search_type="mmr",
-            search_kwargs={"k": config.TOP_K, "fetch_k": config.TOP_K * 3},
+            search_type=config.SEARCH_TYPE,
+            search_kwargs=search_kwargs,
         )
         docs = retriever.invoke(state["question"])
         formatted = _format_docs(docs)

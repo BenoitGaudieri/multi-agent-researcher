@@ -82,6 +82,57 @@ def list_collections():
         )
 
 
+# ── search (RAG debug) ────────────────────────────────────────────────────────
+
+@app.command()
+def search(
+    query: str = typer.Argument(..., help="Query to search in the FAISS index"),
+    collection: Optional[str] = typer.Option(
+        None, "--collection", "-c", help="Collection to search"
+    ),
+    top_k: int = typer.Option(
+        20, "--top-k", "-k", help="Number of chunks to retrieve"
+    ),
+):
+    """Debug RAG retrieval: show all matching chunks with similarity scores."""
+    from langchain_ollama import OllamaEmbeddings
+    from langchain_community.vectorstores import FAISS
+    from rag import config
+
+    if collection:
+        config.COLLECTION = collection
+
+    collection_dir = config.INDEX_DIR / config.COLLECTION
+    if not (collection_dir / "index.faiss").exists():
+        console.print(f"[red]No index found for collection '{config.COLLECTION}'.[/red]")
+        raise typer.Exit(1)
+
+    embeddings = OllamaEmbeddings(model=config.EMBED_MODEL)
+    vectorstore = FAISS.load_local(
+        str(collection_dir), embeddings, allow_dangerous_deserialization=True
+    )
+
+    results = vectorstore.similarity_search_with_score(query, k=top_k)
+
+    console.print(f"\n[bold]Query:[/bold] {query}")
+    console.print(f"[dim]Collection: {config.COLLECTION} — top {top_k} chunks[/dim]\n")
+
+    for i, (doc, score) in enumerate(results, 1):
+        src = Path(doc.metadata.get("source", "?")).name
+        page = doc.metadata.get("page", "")
+        loc = f"{src}, p.{page}" if page != "" else src
+        preview = doc.page_content.replace("\n", " ").strip()[:120]
+
+        # FAISS returns L2 distance — lower = more similar
+        bar = "█" * max(1, int((1 - min(score, 2) / 2) * 20))
+        console.print(
+            f"  [bold cyan]{i:>2}.[/bold cyan] "
+            f"[dim]score={score:.4f}[/dim] {bar}  "
+            f"[yellow]{loc}[/yellow]"
+        )
+        console.print(f"      [dim]{preview}…[/dim]\n")
+
+
 # ── research ──────────────────────────────────────────────────────────────────
 
 @app.command()
@@ -152,13 +203,27 @@ def _print_verbose(result: dict) -> None:
 
     if result.get("rag_results"):
         console.print("\n[dim]── RAG context ─────────────────────────────[/dim]")
-        for chunk in result["rag_results"]:
-            console.print(f"[dim]{chunk[:400]}…[/dim]" if len(chunk) > 400 else f"[dim]{chunk}[/dim]")
+        for blob in result["rag_results"]:
+            # blob is all chunks joined by "\n\n---\n\n" — split and show each one
+            sub_chunks = blob.split("\n\n---\n\n")
+            for i, sub in enumerate(sub_chunks, 1):
+                sub = sub.strip()
+                preview = sub[:300] + "…" if len(sub) > 300 else sub
+                console.print(f"[dim]  [{i}/{len(sub_chunks)}] {preview}[/dim]")
 
     if result.get("web_results"):
         console.print("\n[dim]── Web results ─────────────────────────────[/dim]")
-        for chunk in result["web_results"]:
-            console.print(f"[dim]{chunk[:400]}…[/dim]" if len(chunk) > 400 else f"[dim]{chunk}[/dim]")
+        for blob in result["web_results"]:
+            # strip the <!-- saved: ... --> comment if present
+            lines = blob.split("\n", 1)
+            body = lines[1] if lines[0].startswith("<!--") else blob
+            sub_chunks = body.split("\n\n")
+            for i, sub in enumerate(sub_chunks, 1):
+                sub = sub.strip()
+                if not sub:
+                    continue
+                preview = sub[:300] + "…" if len(sub) > 300 else sub
+                console.print(f"[dim]  [{i}] {preview}[/dim]")
 
     console.print()
 
