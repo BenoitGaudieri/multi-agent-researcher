@@ -2,3 +2,4 @@ venv
 .env
 docs
 web_results
+graph/__pycache__
