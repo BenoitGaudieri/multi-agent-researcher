@@ -12,6 +12,8 @@ Commands
 from pathlib import Path
 from typing import Optional
 
+from graph.state import ResearchState
+
 import typer
 from dotenv import load_dotenv
 from rich.console import Console
@@ -94,7 +96,7 @@ def research(
     if collection:
         config.COLLECTION = collection
 
-    initial_state = {
+    initial_state: ResearchState = {
         "question": question,
         "needs_rag": False,
         "needs_web": False,
@@ -180,7 +182,7 @@ def ask(
         if question.lower() in ("exit", "quit", "q", ":q"):
             break
 
-        initial_state = {
+        initial_state: ResearchState = {
             "question": question,
             "needs_rag": False,
             "needs_web": False,
