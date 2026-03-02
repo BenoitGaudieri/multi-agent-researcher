@@ -6,3 +6,4 @@ graph/__pycache__
 rag/__pycache__
 answers
 logs
+faiss_db
